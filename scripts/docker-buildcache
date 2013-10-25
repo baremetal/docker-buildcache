@@ -1,0 +1,220 @@
+#!/usr/bin/env python
+"""
+Cache ADD steps in a Dockerfile.
+
+This utility breaks apart the Dockerfile into multiple, sub-Dockerfiles
+whenever an ADD command is found.  Each ADD command is run as its own
+Dockerfile with its FROM image being the previous sub-Dockerfile's generated
+image.
+
+A hash of the file being ADDed is generated to create a unique image tag name
+in the form of:
+
+{{ last image id }}-{{ ADD file hash }}
+
+If an image with this tag already exists, the image does not need to be rebuilt
+and the existing image's ID is used for the next sub-Dockerfile.
+"""
+import argparse
+import hashlib
+import os
+import re
+import sys
+
+from shutil import move
+from subprocess import PIPE, Popen
+
+import docker
+
+DOCKERFILE = os.environ.get('DOCKERFILE', 'Dockerfile')
+DOCKERFILE_BACKUP_FILE = os.environ.get('DOCKERFILE_BACKUP_FILE', '_Dockerfile.buildcachebackup')
+
+SUCCESS_RE = re.compile(r'Successfully built (?P<image_id>[0-9a-f]+)')
+
+def get_hash(filename):
+    """
+    Generates a SHA256 of the given file's contents
+    """
+    file_hash = hashlib.sha256()
+
+    with open(filename, 'rb') as fh:
+        while True:
+            buf = fh.read(1024*1024)  # read in 1MB chunks
+            if buf == '':
+                break
+
+            file_hash.update(buf)
+
+    return file_hash.hexdigest()
+
+
+class DockerBuildCache(object):
+    def __init__(self):
+        parser = argparse.ArgumentParser()
+        parser.add_argument('-t', '--tag', required=True, help='The name to tag this build')
+        parser.add_argument('path', nargs='?', default='.', help='The path to the container build directory')
+
+        self.options = parser.parse_args()
+
+    def get_sub_dockerfiles(self):
+        """
+        Generates a collection of sub Dockerfiles, split at ADD commands
+        """
+        sub_dockerfiles = []
+
+        with open(DOCKERFILE, 'rb') as dockerfile:
+            # these are commands that are run in a "sub Dockerfile"
+            sub_dockerfile = []
+
+            while True:
+                line = dockerfile.readline()
+                if line == '':
+                    break
+
+                line = line.strip()
+
+                if line == '':
+                    continue
+                elif line.startswith('#'):
+                    continue
+
+                # when there is an ADD line, make a sub dockerfile just for the
+                # ADD line and we will check it against the file's hash
+                if line.startswith('ADD'):
+                    if sub_dockerfile:
+                        sub_dockerfiles.append(sub_dockerfile)
+
+                    # create a sub Dockerfile just for this ADD command
+                    sub_dockerfiles.append([line])
+
+                    # start a fresh sub Dockerfile following commands
+                    sub_dockerfile = []
+                else:
+                    sub_dockerfile.append(line)
+
+            if sub_dockerfile:
+                sub_dockerfiles.append(sub_dockerfile)
+
+        return sub_dockerfiles
+
+    def quit(self):
+        """
+        Move the original Dockerfile back in place
+        """
+        if os.path.exists(DOCKERFILE_BACKUP_FILE):
+            move(DOCKERFILE_BACKUP_FILE, DOCKERFILE)
+
+    def run(self):
+        if self.options.path != '.':
+            os.chdir(self.options.path)
+
+        # be paranoid about accidentally destroying the original Dockerfile
+        if os.path.exists(DOCKERFILE_BACKUP_FILE):
+            sys.exit('Dockerfile backup file {} exists, cannot continue'.format(DOCKERFILE_BACKUP_FILE))
+
+        # a collection of sub Dockerfiles
+        sub_dockerfiles = self.get_sub_dockerfiles()
+
+        # get a docker client instance to query for images, etc.
+        client = docker.Client()
+
+        try:
+            # move the original Dockerfile out of the way.
+            move(DOCKERFILE, DOCKERFILE_BACKUP_FILE)
+
+            # process each sub dockerfile
+            last_id = None
+            from_image = None
+            for sub_dockerfile in sub_dockerfiles:
+                buildcache_tag = self.options.tag
+
+                if sub_dockerfile[0].startswith('ADD'):
+                    if last_id is None:
+                        sys.exit('There is no previous image ID to calculate build cache')
+
+                    filename = sub_dockerfile[0].split()[1]
+                    hash_value = get_hash(filename)[:12]
+
+                    # calculate the cache ID by using the last image ID and the
+                    # first 12 characters of the file hash
+                    buildcache_tag = 'buildcache-{}-{}'.format(last_id, hash_value)
+
+                    print 'ADD filename={}, file_hash={}'.format(filename, hash_value)
+                    print '  looking for buildcache_tag={}'.format(buildcache_tag)
+
+                    found_cache = False
+                    for image_info in client.images():
+                        if 'Repository' not in image_info:
+                            continue
+
+                        if image_info['Repository'] == buildcache_tag:
+                            found_cache = True
+                            last_id = image_info['Id'][:12]
+
+                            print '  found cache with id {}, skipping build!'.format(last_id)
+                            break
+
+                    # no need to do anything, go to the next dockerfile
+                    if found_cache:
+                        continue
+
+                print 'Building image FROM {} with tag {}'.format(last_id, buildcache_tag)
+
+                # when there is an ID from a previous build, inject it at the
+                # top of the sub Dockerfile
+                if last_id:
+                    sub_dockerfile.insert(0, 'FROM {}'.format(last_id))
+
+                # write the sub Dockerfile and run the build command
+                dockerfile_content = '\n'.join(sub_dockerfile)
+                with open(DOCKERFILE, 'wb') as dockerfile:
+                    dockerfile.write(dockerfile_content)
+
+                print 'Dockerfile content:\n{}\n'.format(dockerfile_content)
+
+                command = ['docker', 'build', '-t', buildcache_tag, '.']
+                print 'Building with command: {}'.format(' '.join(command))
+
+                proc = Popen(command, stdout=PIPE)
+
+                # stream output as the build is running
+                image_id = None
+                output = []
+                while True:
+                    exit_status = proc.poll()
+                    if exit_status is not None:
+                        break
+
+                    line = proc.stdout.readline()
+
+                    sys.stdout.write(line)
+                    sys.stdout.flush()
+
+                    # look for the Success line and grab the image ID
+                    matches = SUCCESS_RE.match(line)
+                    if matches:
+                        image_id = matches.group('image_id')
+
+                    output.append(line)
+
+                # if the build's exit status is non-zero or no Image ID is found, bail
+                if exit_status != 0:
+                    sys.exit('Build exited with status {}; cannot continue'.format(exit_status))
+
+                if image_id is None:
+                    sys.exit("Unable to find build's image ID in output:\n{}".format('\n'.join(output)))
+
+                print 'Image ID: {}'.format(image_id)
+                last_id = image_id
+        finally:
+            self.quit()
+
+
+if __name__ == '__main__':
+    command = DockerBuildCache()
+    try:
+        command.run()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        command.quit()
