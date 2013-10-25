@@ -31,19 +31,37 @@ DOCKERFILE_BACKUP_FILE = os.environ.get('DOCKERFILE_BACKUP_FILE', '_Dockerfile.b
 
 SUCCESS_RE = re.compile(r'Successfully built (?P<image_id>[0-9a-f]+)')
 
-def get_hash(filename):
+def get_hash(path):
     """
-    Generates a SHA256 of the given file's contents
+    Generates a SHA256 of the given path's contents
     """
     file_hash = hashlib.sha256()
 
-    with open(filename, 'rb') as fh:
-        while True:
-            buf = fh.read(1024*1024)  # read in 1MB chunks
-            if buf == '':
-                break
+    # for directories, generate a hash for the contents of the entire directory
+    # structure.  sort the list to make it consistent across runs
+    if os.path.isdir(path):
+        filenames = []
+        for dirpath, dirnames, files in os.walk(path):
+            for _file in files:
+                filenames.append(os.path.join(dirpath, _file))
 
-            file_hash.update(buf)
+        # sort the files to make it deterministic
+        filenames.sort()
+    else:
+        filenames = [path]
+
+    # warn that this is going to be time consuming for a big directory
+    if len(filenames) > 1:
+        print 'Generating a hash for a directory with {} files; this may take a while'.format(len(filenames))
+
+    for filename in filenames:
+        with open(filename, 'rb') as fh:
+            while True:
+                buf = fh.read(1024*1024)  # read in 1MB chunks
+                if buf == '':
+                    break
+
+                file_hash.update(buf)
 
     return file_hash.hexdigest()
 
