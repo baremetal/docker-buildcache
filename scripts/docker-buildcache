@@ -176,7 +176,10 @@ class DockerBuildCache(object):
                     if found_cache:
                         continue
 
-                print 'Building image FROM {} with tag {}'.format(last_id, buildcache_tag)
+                if last_id:
+                    print 'Building image FROM {} with tag {}'.format(last_id, buildcache_tag)
+                else:
+                    print 'Building image with tag {}'.format(buildcache_tag)
 
                 # when there is an ID from a previous build, inject it at the
                 # top of the sub Dockerfile
