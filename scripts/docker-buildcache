@@ -31,7 +31,7 @@ DOCKERFILE_BACKUP_FILE = os.environ.get('DOCKERFILE_BACKUP_FILE', '_Dockerfile.b
 
 SUCCESS_RE = re.compile(r'Successfully built (?P<image_id>[0-9a-f]+)')
 
-def get_hash(path):
+def get_hash(path, destination):
     """
     Generates a SHA256 of the given path's contents
     """
@@ -54,6 +54,7 @@ def get_hash(path):
     if len(filenames) > 1:
         print 'Generating a hash for a directory with {} files; this may take a while'.format(len(filenames))
 
+    # compute the hash
     for filename in filenames:
         with open(filename, 'rb') as fh:
             while True:
@@ -62,6 +63,10 @@ def get_hash(path):
                     break
 
                 file_hash.update(buf)
+
+    # mix in the destination to invalidate the cache if the file's location in
+    # the image is moved.
+    file_hash.update(destination)
 
     return file_hash.hexdigest()
 
@@ -150,8 +155,10 @@ class DockerBuildCache(object):
                     if last_id is None:
                         sys.exit('There is no previous image ID to calculate build cache')
 
-                    filename = sub_dockerfile[0].split()[1]
-                    hash_value = get_hash(filename)[:12]
+                    split_add = sub_dockerfile[0].split()
+                    filename = split_add[1]
+                    destination = split_add[2]
+                    hash_value = get_hash(filename, destination)[:12]
 
                     # calculate the cache ID by using the last image ID and the
                     # first 12 characters of the file hash
