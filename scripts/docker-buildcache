@@ -29,7 +29,7 @@ import docker
 DOCKERFILE = os.environ.get('DOCKERFILE', 'Dockerfile')
 DOCKERFILE_BACKUP_FILE = os.environ.get('DOCKERFILE_BACKUP_FILE', '_Dockerfile.buildcachebackup')
 
-SUCCESS_RE = re.compile(r'Successfully built (?P<image_id>[0-9a-f]+)')
+SUCCESS_RE = re.compile(r'.*Successfully built (?P<image_id>[0-9a-f]+)')
 
 def get_hash(path, destination):
     """
