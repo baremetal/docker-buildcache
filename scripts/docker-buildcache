@@ -19,10 +19,11 @@ import argparse
 import hashlib
 import os
 import re
+import shlex
 import sys
 
 from shutil import move
-from subprocess import PIPE, Popen
+from subprocess import PIPE, Popen, call
 
 import docker
 
@@ -234,6 +235,10 @@ class DockerBuildCache(object):
 
                 print 'Image ID: {}'.format(image_id)
                 last_id = image_id
+            command = 'docker tag {} {}'.format(last_id, self.options.tag)
+            print 'done, tagging: {}'.format(command)
+
+            retcode = call(shlex.split(command))
         finally:
             self.quit()
 
