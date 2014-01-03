@@ -21,7 +21,7 @@ setup(name='docker-buildcache',
       author_email='roberto@baremetal.io',
       scripts=['scripts/docker-buildcache'],
       long_description=open('README.md').read(),
-      url='http://github.com/baremetal/docker-buildcace',
+      url='http://github.com/baremetal/docker-buildcache',
       license='LICENSE.txt',
       install_requires=install_requires,
 )
