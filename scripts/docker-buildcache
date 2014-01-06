@@ -76,6 +76,7 @@ class DockerBuildCache(object):
     def __init__(self):
         parser = argparse.ArgumentParser()
         parser.add_argument('-t', '--tag', required=True, help='The name to tag this build')
+        parser.add_argument('--skip-cache', action='store_true', default=False, help='Skip cached builds')
         parser.add_argument('path', nargs='?', default='.', help='The path to the container build directory')
 
         self.options = parser.parse_args()
@@ -143,7 +144,10 @@ class DockerBuildCache(object):
         client = docker.Client()
 
         print 'getting list of images ...'
-        images = client.images()
+        if self.options.skip_cache:
+            images = []
+        else:
+            images = client.images()
 
         try:
             # move the original Dockerfile out of the way.
