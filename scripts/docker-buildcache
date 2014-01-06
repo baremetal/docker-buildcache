@@ -142,6 +142,9 @@ class DockerBuildCache(object):
         # get a docker client instance to query for images, etc.
         client = docker.Client()
 
+        print 'getting list of images ...'
+        images = client.images()
+
         try:
             # move the original Dockerfile out of the way.
             move(DOCKERFILE, DOCKERFILE_BACKUP_FILE)
@@ -169,7 +172,7 @@ class DockerBuildCache(object):
                     print '  looking for buildcache_tag={}'.format(buildcache_tag)
 
                     found_cache = False
-                    for image_info in client.images():
+                    for image_info in images:
                         if 'Repository' not in image_info:
                             continue
 
