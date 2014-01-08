@@ -77,9 +77,35 @@ class DockerBuildCache(object):
         parser = argparse.ArgumentParser()
         parser.add_argument('-t', '--tag', required=True, help='The name to tag this build')
         parser.add_argument('--skip-cache', action='store_true', default=False, help='Skip cached builds')
+        parser.add_argument('--clean', action='store_true', default=False, help='Clean old cache images')
         parser.add_argument('path', nargs='?', default='.', help='The path to the container build directory')
 
         self.options = parser.parse_args()
+
+    def clean(self):
+        print 'cleaning ...'
+
+        client = docker.Client()
+        images = client.images()
+
+        found_hashes = []
+
+        for image_info in images:
+            if 'Repository' not in image_info:
+                continue
+
+            repository = image_info['Repository']
+            if not repository.startswith('buildcache'):
+                continue
+
+            _, last_id, _ = repository.split('-')
+            if last_id in found_hashes:
+                command = 'docker rmi {}'.format(repository)
+                print command
+                retcode = call(shlex.split(command))
+            else:
+                found_hashes.append(last_id)
+                print 'keep {}'.format(repository)
 
     def get_sub_dockerfiles(self):
         """
@@ -246,6 +272,9 @@ class DockerBuildCache(object):
             print 'done, tagging: {}'.format(command)
 
             retcode = call(shlex.split(command))
+
+            if self.options.clean:
+                self.clean()
         finally:
             self.quit()
 
