@@ -1,1 +1,2 @@
 docker-py==0.2.2
+-e git+git@github.com:baremetal/docker-buildcache.git@72690679d8231fa1416a4585a5ce07a5f5577d3f#egg=docker_buildcache-dev

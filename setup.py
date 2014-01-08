@@ -11,8 +11,11 @@ if not SCRIPT_DIR:
 # put together list of requirements to install
 install_requires = []
 with open(os.path.join(SCRIPT_DIR, 'requirements.txt')) as fh:
-        for line in fh.readlines():
-                    install_requires.append(line.strip())
+    for line in fh.readlines():
+        if line.startswith('-e'):
+            continue
+
+        install_requires.append(line.strip())
 
 setup(name='docker-buildcache',
       version='0.0.1',
