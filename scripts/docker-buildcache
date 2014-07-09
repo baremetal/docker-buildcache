@@ -103,7 +103,7 @@ class DockerBuildCache(object):
     def __init__(self):
         parser = argparse.ArgumentParser()
         parser.add_argument('-t', '--tag', required=True, help='The name to tag this build')
-        parser.add_argument('--skip-cache', action='store_true', default=False, help='Skip cached builds')
+        parser.add_argument('--no-cache', action='store_true', default=False, help='Skip cached builds')
         parser.add_argument('--clean', action='store_true', default=False, help='Clean old cache images')
         parser.add_argument('path', nargs='?', default='.', help='The path to the container build directory')
 
@@ -197,7 +197,7 @@ class DockerBuildCache(object):
         client = docker.Client()
 
         print 'getting list of images ...'
-        if self.options.skip_cache:
+        if self.options.no_cache:
             images = []
         else:
             images = client.images()
