@@ -156,13 +156,13 @@ class DockerBuildCache(object):
                 elif line.startswith('#'):
                     continue
 
-                # when there is an ADD line, make a sub dockerfile just for the
-                # ADD line and we will check it against the file's hash
-                if line.startswith('ADD'):
+                # when there is an ADD or WORKDIR line, make a sub dockerfile
+                # just for this command and it's checked against a cache hash
+                if line.startswith('ADD') or line.startswith('WORKDIR'):
                     if sub_dockerfile:
                         sub_dockerfiles.append(sub_dockerfile)
 
-                    # create a sub Dockerfile just for this ADD command
+                    # create a sub Dockerfile just for this command
                     sub_dockerfiles.append([line])
 
                     # start a fresh sub Dockerfile following commands
@@ -208,10 +208,9 @@ class DockerBuildCache(object):
 
             # process each sub dockerfile
             last_id = None
-            from_image = None
-            found_cache = False
             for sub_dockerfile in sub_dockerfiles:
                 buildcache_tag = self.options.tag
+                found_cache = False
 
                 if sub_dockerfile[0].startswith('ADD'):
                     if last_id is None:
@@ -223,6 +222,17 @@ class DockerBuildCache(object):
                     hash_value = get_hash(filename, destination)[:12]
 
                     print 'ADD filename={}, file_hash={}'.format(filename, hash_value)
+
+                    found_cache, buildcache_tag, last_id = find_cache(last_id, hash_value, images)
+                elif sub_dockerfile[0].startswith('WORKDIR'):
+                    if last_id is None:
+                        sys.exit('There is no previous image ID to calculate build cache')
+
+                    _hash = hashlib.sha256()
+                    _hash.update(sub_dockerfile[0])
+                    hash_value = _hash.hexdigest()[:12]
+
+                    print '{}, file_hash={}'.format(sub_dockerfile[0], hash_value)
 
                     found_cache, buildcache_tag, last_id = find_cache(last_id, hash_value, images)
 
