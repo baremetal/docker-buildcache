@@ -32,6 +32,29 @@ DOCKERFILE_BACKUP_FILE = os.environ.get('DOCKERFILE_BACKUP_FILE', '_Dockerfile.b
 
 SUCCESS_RE = re.compile(r'.*Successfully built (?P<image_id>[0-9a-f]+)')
 
+
+def find_cache(last_id, hash_value, images):
+    # calculate the cache ID by using the last image ID and the
+    # first 12 characters of the file hash
+    buildcache_tag = 'buildcache-{}-{}'.format(last_id, hash_value)
+
+    print '  looking for buildcache_tag={}'.format(buildcache_tag)
+
+    found_cache = False
+    for image_info in images:
+        if 'Repository' not in image_info:
+            continue
+
+        if image_info['Repository'] == buildcache_tag:
+            found_cache = True
+            last_id = image_info['Id'][:12]
+
+            print '  found cache with id {}, skipping build!'.format(last_id)
+            break
+
+    return found_cache, buildcache_tag, last_id
+
+
 def get_hash(path, destination):
     """
     Generates a SHA256 of the given path's contents
@@ -186,6 +209,7 @@ class DockerBuildCache(object):
             # process each sub dockerfile
             last_id = None
             from_image = None
+            found_cache = False
             for sub_dockerfile in sub_dockerfiles:
                 buildcache_tag = self.options.tag
 
@@ -198,28 +222,13 @@ class DockerBuildCache(object):
                     destination = split_add[2]
                     hash_value = get_hash(filename, destination)[:12]
 
-                    # calculate the cache ID by using the last image ID and the
-                    # first 12 characters of the file hash
-                    buildcache_tag = 'buildcache-{}-{}'.format(last_id, hash_value)
-
                     print 'ADD filename={}, file_hash={}'.format(filename, hash_value)
-                    print '  looking for buildcache_tag={}'.format(buildcache_tag)
 
-                    found_cache = False
-                    for image_info in images:
-                        if 'Repository' not in image_info:
-                            continue
+                    found_cache, buildcache_tag, last_id = find_cache(last_id, hash_value, images)
 
-                        if image_info['Repository'] == buildcache_tag:
-                            found_cache = True
-                            last_id = image_info['Id'][:12]
-
-                            print '  found cache with id {}, skipping build!'.format(last_id)
-                            break
-
-                    # no need to do anything, go to the next dockerfile
-                    if found_cache:
-                        continue
+                # no need to do anything, go to the next dockerfile
+                if found_cache:
+                    continue
 
                 if last_id:
                     print 'Building image FROM {} with tag {}'.format(last_id, buildcache_tag)
@@ -272,6 +281,7 @@ class DockerBuildCache(object):
 
                 print 'Image ID: {}'.format(image_id)
                 last_id = image_id
+
             command = 'docker tag {} {}'.format(last_id, self.options.tag)
             print 'done, tagging: {}'.format(command)
 
