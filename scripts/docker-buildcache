@@ -209,7 +209,7 @@ class DockerBuildCache(object):
             # process each sub dockerfile
             last_id = None
             for sub_dockerfile in sub_dockerfiles:
-                buildcache_tag = self.options.tag
+                buildcache_tag = None
                 found_cache = False
 
                 if sub_dockerfile[0].startswith('ADD'):
@@ -257,7 +257,11 @@ class DockerBuildCache(object):
 
                 print 'Dockerfile content:\n{}\n'.format(dockerfile_content)
 
-                command = ['docker', 'build', '-t', buildcache_tag, '.']
+                tag_option = []
+                if buildcache_tag:
+                    tag_option = ['-t', buildcache_tag]
+
+                command = ['docker', 'build'] + tag_option + ['.']
                 print 'Building with command: {}'.format(' '.join(command))
 
                 proc = Popen(command, stdout=PIPE)
